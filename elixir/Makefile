@@ -2,6 +2,21 @@
 
 MIX ?= mix
 
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+
+ifeq ($(UNAME_S),Darwin)
+    ifeq ($(UNAME_M),arm64)
+        BURRITO_TARGET ?= macos_silicon
+    else
+        BURRITO_TARGET ?= macos
+    endif
+else ifeq ($(UNAME_S),Linux)
+    BURRITO_TARGET ?= linux
+else
+    BURRITO_TARGET ?= windows
+endif
+
 help:
 	@echo "Targets: setup, deps, fmt, fmt-check, lint, test, coverage, dialyzer, e2e, ci"
 
@@ -45,3 +60,6 @@ ci:
 	$(MAKE) dialyzer
 
 all: ci
+
+release:
+	BURRITO_TARGET=$(BURRITO_TARGET) $(MIX) release

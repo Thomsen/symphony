@@ -48,6 +48,7 @@ defmodule SymphonyElixir.MixProject do
       ],
       escript: escript(),
       aliases: aliases(),
+      releases: releases(),
       deps: deps()
     ]
   end
@@ -75,7 +76,8 @@ defmodule SymphonyElixir.MixProject do
       {:solid, "~> 1.2"},
       {:ecto, "~> 3.13"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
+      {:burrito, "~> 1.0"}
     ]
   end
 
@@ -93,6 +95,22 @@ defmodule SymphonyElixir.MixProject do
       main_module: SymphonyElixir.CLI,
       name: "symphony",
       path: "bin/symphony"
+    ]
+  end
+
+  def releases do
+    [
+      symphony: [
+        steps: [:assemble, &Burrito.wrap/1],
+        burrito: [
+          targets: [
+            macos: [os: :darwin, cpu: :x86_64],
+            macos_silicon: [os: :darwin, cpu: :aarch64],
+            linux: [os: :linux, cpu: :x86_64],
+            windows: [os: :windows, cpu: :x86_64]
+          ]
+        ]
+      ]
     ]
   end
 end
