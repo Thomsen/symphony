@@ -62,4 +62,4 @@ ci:
 all: ci
 
 release:
-	BURRITO_TARGET=$(BURRITO_TARGET) $(MIX) release
+	BURRITO_TARGET=$(BURRITO_TARGET) MIX_ENV=prod $(MIX) release
