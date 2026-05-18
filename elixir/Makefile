@@ -63,3 +63,7 @@ all: ci
 
 release:
 	BURRITO_TARGET=$(BURRITO_TARGET) MIX_ENV=prod $(MIX) release
+
+install: release
+	mkdir -p ~/.local/bin
+	cp burrito_out/symphony_$(BURRITO_TARGET) ~/.local/bin/symphony
