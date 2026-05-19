@@ -23,24 +23,14 @@ defmodule SymphonyElixir.Application do
   def start(_type, _args) do
     :ok = SymphonyElixir.LogFile.configure()
 
-    children =
-      case System.argv() do
-        ["gemini" | _] ->
-          [
-            {Phoenix.PubSub, name: SymphonyElixir.PubSub},
-            {Task.Supervisor, name: SymphonyElixir.TaskSupervisor}
-          ]
-
-        _ ->
-          [
-            {Phoenix.PubSub, name: SymphonyElixir.PubSub},
-            {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
-            SymphonyElixir.WorkflowStore,
-            SymphonyElixir.Orchestrator,
-            SymphonyElixir.HttpServer,
-            SymphonyElixir.StatusDashboard
-          ]
-      end
+    children = [
+      {Phoenix.PubSub, name: SymphonyElixir.PubSub},
+      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
+      SymphonyElixir.WorkflowStore,
+      SymphonyElixir.Orchestrator,
+      SymphonyElixir.HttpServer,
+      SymphonyElixir.StatusDashboard
+    ]
 
     Supervisor.start_link(
       children,
