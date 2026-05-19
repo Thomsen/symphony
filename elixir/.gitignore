@@ -51,3 +51,6 @@ status.txt
 
 # Ignore package tarball (built via "mix hex.build").
 symphony_elixir-*.tar
+
+# release
+burrito_out

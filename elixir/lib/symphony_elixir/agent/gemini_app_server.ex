@@ -98,7 +98,7 @@ defmodule SymphonyElixir.Agent.GeminiAppServer do
   defp handle_symphony_message(state, %{"method" => "thread/start", "id" => id, "params" => params}) do
     cwd = Map.get(params, "cwd", File.cwd!())
 
-    gemini_args = ["--experimental-acp", "--yolo"]
+    gemini_args = ["--acp", "--yolo"]
     gemini_args = if state.model, do: gemini_args ++ ["--model", state.model], else: gemini_args
 
     executable = System.find_executable("gemini")
@@ -113,6 +113,7 @@ defmodule SymphonyElixir.Agent.GeminiAppServer do
           [
             :binary,
             :exit_status,
+            :stderr_to_stdout,
             args: gemini_args,
             cd: cwd,
             line: 1_048_576

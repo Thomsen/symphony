@@ -31,7 +31,7 @@ agent:
   max_concurrent_agents: 10
   max_turns: 20
 codex:
-  command: symphony gemini
+  command: symphony gemini --model gemini-2.0-flash
   approval_policy: never
   thread_sandbox: workspace-write
   turn_sandbox_policy:

@@ -62,7 +62,10 @@ ci:
 all: ci
 
 release:
-	BURRITO_TARGET=$(BURRITO_TARGET) MIX_ENV=prod $(MIX) release
+	$(MIX) release
+
+release-all:
+	SYMPHONY_BUILD_ALL=1 $(MIX) release
 
 install: release
 	mkdir -p ~/.local/bin
