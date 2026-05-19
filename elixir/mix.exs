@@ -100,19 +100,53 @@ defmodule SymphonyElixir.MixProject do
     ]
   end
 
+  defp host_target do
+    {os_family, os_name} = :os.type()
+    arch = :erlang.system_info(:system_architecture) |> to_string()
+
+    case {os_family, os_name} do
+      {:unix, :darwin} ->
+        if String.contains?(arch, "arm64") or String.contains?(arch, "aarch64") do
+          :macos_silicon
+        else
+          :macos
+        end
+
+      {:unix, :linux} ->
+        :linux
+
+      {:win32, _} ->
+        :windows
+
+      _ ->
+        :linux
+    end
+  end
+
   def releases do
     [
       symphony: [
         steps: [:assemble, &Burrito.wrap/1],
         burrito: [
-          targets: [
-            macos: [os: :darwin, cpu: :x86_64],
-            macos_silicon: [os: :darwin, cpu: :aarch64],
-            linux: [os: :linux, cpu: :x86_64],
-            windows: [os: :windows, cpu: :x86_64]
-          ]
+          entry_point: {SymphonyElixir.CLI, :main},
+          targets: burrito_targets()
         ]
       ]
     ]
+  end
+
+  defp burrito_targets do
+    all_targets = [
+      macos: [os: :darwin, cpu: :x86_64],
+      macos_silicon: [os: :darwin, cpu: :aarch64],
+      linux: [os: :linux, cpu: :x86_64],
+      windows: [os: :windows, cpu: :x86_64]
+    ]
+
+    if System.get_env("SYMPHONY_BUILD_ALL") == "1" do
+      all_targets
+    else
+      Keyword.take(all_targets, [host_target()])
+    end
   end
 end
