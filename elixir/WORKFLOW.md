@@ -19,6 +19,7 @@ workspace:
   root: ~/ai/symphony-openai
 hooks:
   after_create: |
+    git clone -b dev --depth 1 https://github.com/Thomsen/symphony .
     if command -v mise >/dev/null 2>&1; then
       cd elixir && mise trust && mise exec -- mix deps.get
     fi
@@ -28,7 +29,7 @@ agent:
   max_concurrent_agents: 10
   max_turns: 20
 codex:
-  command: /Users/thom/ai/symphony-openai/elixir/bin/symphony gemini-app-server --model  gemini-3-flash-preview
+  command: symphony gemini-app-server --model  gemini-3-flash-preview
   read_timeout_ms: 60000
   approval_policy: never
   thread_sandbox: workspace-write
