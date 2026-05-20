@@ -5,60 +5,137 @@ defmodule SymphonyElixir.Agent.GeminiAppServer do
   Bridges Codex JSON-RPC protocol over stdio to Gemini ACP over stdio.
   """
 
+  use GenServer
+  require Logger
+
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
   @spec main([String.t()]) :: no_return()
   def main(args) do
     {opts, _, _} = OptionParser.parse(args, strict: [model: :string])
+    {:ok, _pid} = start_link(opts)
+
+    Process.monitor(__MODULE__)
+
+    receive do
+      {:DOWN, _, :process, _, _} ->
+        System.halt(0)
+    end
+  end
+
+  @impl GenServer
+  def init(opts) do
+    Logger.info("GeminiAppServer initializing with opts: #{inspect(opts)}")
     model = Keyword.get(opts, :model)
 
     parent = self()
 
-    spawn_link(fn ->
-      for line <- IO.stream(:stdio, :line) do
-        send(parent, {:stdio_line, line})
-      end
-    end)
+    collector_pid =
+      spawn_link(fn ->
+        loop_read(parent)
+      end)
 
-    loop(%{
-      model: model,
-      gemini_port: nil,
-      gemini_session_id: nil,
-      pending_requests: %{},
-      acp_id_counter: 10,
-      cwd: nil,
-      gemini_buffer: ""
-    })
+    {:ok,
+     %{
+       model: model,
+       gemini_port: nil,
+       gemini_session_id: nil,
+       pending_requests: %{},
+       acp_id_counter: 10,
+       cwd: nil,
+       gemini_buffer: "",
+       collector_pid: collector_pid
+     }}
   end
 
-  defp loop(state) do
-    receive do
-      {:stdio_line, line} ->
-        state |> handle_stdio(line) |> loop()
+  @impl GenServer
+  def handle_info({:stdio_line, line}, state) do
+    log("RECV SYMPHONY: #{String.trim(line)}")
+    Logger.info("GeminiAppServer received stdio line: #{String.trim(line)}")
+    {:noreply, handle_stdio(state, line)}
+  end
 
-      {port, {:data, {:eol, chunk}}} when port == state.gemini_port ->
-        line = state.gemini_buffer <> chunk
-        state |> Map.put(:gemini_buffer, "") |> handle_gemini_line(line) |> loop()
+  @impl GenServer
+  def handle_info({port, {:data, {:eol, chunk}}}, state) when port == state.gemini_port do
+    line = state.gemini_buffer <> chunk
+    {:noreply, state |> Map.put(:gemini_buffer, "") |> handle_gemini_line(line)}
+  end
 
-      {port, {:data, {:noeol, chunk}}} when port == state.gemini_port ->
-        loop(%{state | gemini_buffer: state.gemini_buffer <> chunk})
+  @impl GenServer
+  def handle_info({port, {:data, {:noeol, chunk}}}, state) when port == state.gemini_port do
+    {:noreply, %{state | gemini_buffer: state.gemini_buffer <> chunk}}
+  end
 
-      {port, {:exit_status, status}} when port == state.gemini_port ->
-        System.halt(status)
+  @impl GenServer
+  def handle_info({port, {:exit_status, status}}, state) when port == state.gemini_port do
+    # Graceful exit of the GenServer instead of System.halt
+    Process.exit(self(), if(status == 0, do: :normal, else: {:port_exit, status}))
+    {:noreply, state}
+  end
 
-      _other ->
-        loop(state)
+  @impl GenServer
+  def handle_info(_other, state) do
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def terminate(_reason, state) do
+    if state.collector_pid && Process.alive?(state.collector_pid) do
+      Process.exit(state.collector_pid, :kill)
     end
+
+    if state.gemini_port do
+      Port.close(state.gemini_port)
+    end
+
+    :ok
   end
 
   defp send_symphony(msg) do
     msg_with_rpc = Map.put(msg, :jsonrpc, "2.0")
-    IO.write(:stdio, Jason.encode!(msg_with_rpc) <> "\n")
+    payload = Jason.encode!(msg_with_rpc)
+    log("SEND SYMPHONY: #{payload}")
+    Logger.info("GeminiAppServer sending to Symphony: #{payload}")
+    IO.puts(payload)
   end
 
   defp send_acp(state, method, params) do
     id = state.acp_id_counter
     msg = %{jsonrpc: "2.0", method: method, id: id, params: params}
-    Port.command(state.gemini_port, Jason.encode!(msg) <> "\n")
+    payload = Jason.encode!(msg)
+    log("SEND GEMINI: #{payload}")
+    Logger.info("GeminiAppServer sending ACP request: #{payload}")
+    Port.command(state.gemini_port, payload <> "\n")
     {id, %{state | acp_id_counter: id + 1}}
+  end
+
+  defp prepare_mcp_servers(symphony_mcp_servers) do
+    internal_server = %{
+      "name" => "symphony-mcp-adapter",
+      "command" => Path.expand(to_string(:escript.script_name())),
+      "args" => ["mcp-adapter"],
+      "env" => []
+    }
+
+    orchestrator_servers =
+      cond do
+        is_list(symphony_mcp_servers) ->
+          Enum.filter(symphony_mcp_servers, &is_map/1)
+
+        is_map(symphony_mcp_servers) ->
+          # If orchestrator sent a map (like gemini.json format), try to convert it to the array format
+          Enum.map(symphony_mcp_servers, fn {name, config} ->
+            Map.put(config, "name", to_string(name))
+          end)
+
+        true ->
+          []
+      end
+
+    [internal_server | orchestrator_servers]
   end
 
   defp notify_acp(state, method, params) do
@@ -142,7 +219,13 @@ defmodule SymphonyElixir.Agent.GeminiAppServer do
             auth_id,
             fn _res, s2 ->
               # session/new
-              {session_id, s3} = send_acp(s2, "session/new", %{cwd: cwd, mcpServers: []})
+              mcp_servers = prepare_mcp_servers(Map.get(params, "mcpServers", []))
+
+              {session_id, s3} =
+                send_acp(s2, "session/new", %{
+                  cwd: cwd,
+                  mcpServers: mcp_servers
+                })
 
               put_pending(
                 s3,
@@ -168,7 +251,13 @@ defmodule SymphonyElixir.Agent.GeminiAppServer do
                   auth_id2,
                   fn _res, s4 ->
                     # session/new
-                    {session_id, s5} = send_acp(s4, "session/new", %{cwd: cwd, mcpServers: []})
+                    mcp_servers = prepare_mcp_servers(Map.get(params, "mcpServers", []))
+
+                    {session_id, s5} =
+                      send_acp(s4, "session/new", %{
+                        cwd: cwd,
+                        mcpServers: mcp_servers
+                      })
 
                     put_pending(
                       s5,
@@ -235,6 +324,33 @@ defmodule SymphonyElixir.Agent.GeminiAppServer do
     )
   end
 
+  defp handle_symphony_message(state, %{"method" => "item/tool/result", "params" => params} = msg) do
+    Logger.info("GeminiAppServer received tool result from Symphony: #{inspect(msg)}")
+
+    id = params["id"]
+    output = params["output"]
+
+    # Translate back to Gemini response (ACP)
+    msg = %{
+      jsonrpc: "2.0",
+      id: id,
+      result: %{
+        "content" => [%{"type" => "text", "text" => output}],
+        "isError" => false
+      }
+    }
+
+    Port.command(state.gemini_port, Jason.encode!(msg) <> "\n")
+    state
+  end
+
+  defp handle_symphony_message(state, %{"id" => id} = msg) when not is_nil(id) do
+    # Generic response forwarding for requests initiated by Gemini (like tool calls)
+    Logger.info("GeminiAppServer forwarding response to Gemini: #{inspect(msg)}")
+    Port.command(state.gemini_port, Jason.encode!(msg) <> "\n")
+    state
+  end
+
   defp handle_symphony_message(state, _msg) do
     state
   end
@@ -245,23 +361,84 @@ defmodule SymphonyElixir.Agent.GeminiAppServer do
 
   defp handle_gemini_line(state, line) do
     case Jason.decode(line) do
-      {:ok, %{"id" => id} = msg} when not is_nil(id) ->
-        case Map.pop(state.pending_requests, id) do
-          {nil, _} ->
-            state
-
-          {callback, pending} ->
-            s2 = %{state | pending_requests: pending}
-
-            if msg["error"] do
-              callback.reject.(msg["error"], s2)
-            else
-              callback.resolve.(msg["result"], s2)
-            end
-        end
+      {:ok, msg} ->
+        log("RECV GEMINI: #{Jason.encode!(msg)}")
+        handle_gemini_message(state, msg)
 
       _ ->
         state
+    end
+  end
+
+  defp handle_gemini_message(state, %{"id" => id, "method" => "item/tool/call", "params" => params} = msg) do
+    Logger.info("GeminiAppServer received tool call from Gemini: #{inspect(msg)}")
+
+    # Translate to Codex item/tool/call
+    call = params["call"]
+
+    symphony_params = %{
+      "name" => call["name"],
+      "arguments" => call["input"],
+      "callId" => call["id"]
+    }
+
+    send_symphony(%{
+      method: "item/tool/call",
+      id: id,
+      params: symphony_params
+    })
+
+    state
+  end
+
+  defp handle_gemini_message(state, %{"method" => "item/text", "params" => params} = msg) do
+    Logger.info("GeminiAppServer received text from Gemini: #{inspect(msg)}")
+
+    send_symphony(%{
+      method: "item/text",
+      params: %{"text" => params["text"]}
+    })
+
+    state
+  end
+
+  defp handle_gemini_message(state, %{"id" => id} = msg) when not is_nil(id) do
+    case Map.pop(state.pending_requests, id) do
+      {nil, _} ->
+        state
+
+      {callback, pending} ->
+        s2 = %{state | pending_requests: pending}
+
+        if msg["error"] do
+          callback.reject.(msg["error"], s2)
+        else
+          callback.resolve.(msg["result"], s2)
+        end
+    end
+  end
+
+  defp handle_gemini_message(state, _msg) do
+    state
+  end
+
+  defp log(message) do
+    timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+    log_file = Path.join([File.cwd!(), "log", "gemini_app_server.log"])
+    File.mkdir_p!(Path.dirname(log_file))
+    File.write!(log_file, "#{timestamp} #{message}\n", [:append])
+  rescue
+    _ -> :ok
+  end
+
+  defp loop_read(parent) do
+    case :io.get_line(:standard_io, "") do
+      :eof ->
+        :ok
+
+      line ->
+        send(parent, {:stdio_line, line})
+        loop_read(parent)
     end
   end
 end

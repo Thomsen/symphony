@@ -62,7 +62,7 @@ ci:
 all: ci
 
 release:
-	$(MIX) release
+	MIX_ENV=prod $(MIX) release
 
 release-all:
 	SYMPHONY_BUILD_ALL=1 $(MIX) release

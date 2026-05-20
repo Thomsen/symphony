@@ -1,7 +1,7 @@
 ---
 tracker:
   kind: linear
-  project_slug: "symphony-0c79b11b75ea"
+  project_slug: "symphony-5ddc2d4df761"
   active_states:
     - Todo
     - In Progress
@@ -16,10 +16,9 @@ tracker:
 polling:
   interval_ms: 5000
 workspace:
-  root: ~/code/symphony-workspaces
+  root: ~/ai/symphony-openai
 hooks:
   after_create: |
-    git clone --depth 1 https://github.com/openai/symphony .
     if command -v mise >/dev/null 2>&1; then
       cd elixir && mise trust && mise exec -- mix deps.get
     fi
@@ -29,7 +28,8 @@ agent:
   max_concurrent_agents: 10
   max_turns: 20
 codex:
-  command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=xhigh app-server
+  command: /Users/thom/ai/symphony-openai/elixir/bin/symphony gemini-app-server --model  gemini-3-flash-preview
+  read_timeout_ms: 60000
   approval_policy: never
   thread_sandbox: workspace-write
   turn_sandbox_policy:

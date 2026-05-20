@@ -20,6 +20,9 @@ defmodule SymphonyElixir.CLI do
 
   @spec main([String.t()]) :: no_return()
   def main(args) do
+    # Burrito entry_point might be called with empty args if they are only in System.argv()
+    args = if args == [], do: System.argv(), else: args
+
     case evaluate(args) do
       :ok ->
         wait_for_shutdown()
@@ -36,6 +39,26 @@ defmodule SymphonyElixir.CLI do
   def evaluate(["gemini" | args], _deps) do
     GeminiAppServer.main(args)
     :ok
+  end
+
+  def evaluate(["gemini-app-server" | _args], deps) do
+    case deps.ensure_all_started.() do
+      {:ok, _started_apps} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, "Failed to start Gemini app server: #{inspect(reason)}"}
+    end
+  end
+
+  def evaluate(["mcp-adapter" | _args], deps) do
+    case deps.ensure_all_started.() do
+      {:ok, _started_apps} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, "Failed to start MCP adapter: #{inspect(reason)}"}
+    end
   end
 
   def evaluate(args, deps) do
@@ -80,7 +103,12 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
+    """
+    Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]
+           symphony gemini [--model <model>]
+           symphony gemini-app-server [--model <model>]
+           symphony mcp-adapter
+    """
   end
 
   @spec runtime_deps() :: deps()
