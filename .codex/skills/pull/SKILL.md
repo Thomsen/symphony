@@ -30,7 +30,7 @@ description:
 7. If conflicts appear, resolve them (see conflict guidance below), then:
    - `git add <files>`
    - `git commit` (or `git merge --continue` if the merge is paused)
-8. Verify with project checks (follow repo policy in `AGENTS.md`).
+8. Verify with project checks (follow repo policy in `elixir/CONTRIBUTING.md`).
 9. Summarize the merge:
    - Call out the most challenging conflicts/files and how they were resolved.
    - Note any assumptions or follow-ups.
