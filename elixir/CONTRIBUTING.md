@@ -62,3 +62,4 @@ If behavior/config changes, update docs in the same PR:
 - `../README.md` for project concept and goals.
 - `README.md` for Elixir implementation and run instructions.
 - `WORKFLOW.md` for workflow/config contract changes.
+- `CONTRIBUTING.md` for Elixir-specific development rules and conventions.
