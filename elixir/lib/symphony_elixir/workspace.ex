@@ -293,12 +293,13 @@ defmodule SymphonyElixir.Workspace do
 
   defp run_hook(command, workspace, issue_context, hook_name, nil) do
     timeout_ms = Config.settings!().hooks.timeout_ms
+    expanded_command = expand_command(command, issue_context)
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local")
 
     task =
       Task.async(fn ->
-        System.cmd("sh", ["-lc", command], cd: workspace, stderr_to_stdout: true)
+        System.cmd("sh", ["-lc", expanded_command], cd: workspace, stderr_to_stdout: true)
       end)
 
     case Task.yield(task, timeout_ms) do
@@ -316,10 +317,11 @@ defmodule SymphonyElixir.Workspace do
 
   defp run_hook(command, workspace, issue_context, hook_name, worker_host) when is_binary(worker_host) do
     timeout_ms = Config.settings!().hooks.timeout_ms
+    expanded_command = expand_command(command, issue_context)
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
 
-    case run_remote_command(worker_host, "cd #{shell_escape(workspace)} && #{command}", timeout_ms) do
+    case run_remote_command(worker_host, "cd #{shell_escape(workspace)} && #{expanded_command}", timeout_ms) do
       {:ok, cmd_result} ->
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
@@ -330,6 +332,43 @@ defmodule SymphonyElixir.Workspace do
         {:error, reason}
     end
   end
+
+  defp expand_command(command, %{raw_issue: issue}) when not is_nil(issue) do
+    try do
+      issue_data =
+        issue
+        |> maybe_issue_to_map()
+        |> to_solid_map()
+
+      Solid.parse!(command)
+      |> Solid.render!(%{"issue" => issue_data}, strict_variables: true, strict_filters: true)
+      |> IO.iodata_to_binary()
+    rescue
+      error ->
+        Logger.warning("Failed to expand hook command: #{inspect(error)} command=#{inspect(command)}")
+        command
+    end
+  end
+
+  defp expand_command(command, _issue_context), do: command
+
+  defp maybe_issue_to_map(%SymphonyElixir.Linear.Issue{} = issue), do: Map.from_struct(issue)
+  defp maybe_issue_to_map(issue) when is_map(issue), do: issue
+  defp maybe_issue_to_map(_issue), do: %{}
+
+  defp to_solid_map(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), to_solid_value(value)} end)
+  end
+
+  defp to_solid_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp to_solid_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp to_solid_value(%Date{} = value), do: Date.to_iso8601(value)
+  defp to_solid_value(%Time{} = value), do: Time.to_iso8601(value)
+  defp to_solid_value(%_{} = value), do: value |> Map.from_struct() |> to_solid_map()
+  defp to_solid_value(value) when is_map(value), do: to_solid_map(value)
+  defp to_solid_value(value) when is_list(value), do: Enum.map(value, &to_solid_value/1)
+  defp to_solid_value(value), do: value
+
 
   defp handle_hook_command_result({_output, 0}, _workspace, _issue_id, _hook_name) do
     :ok
@@ -456,24 +495,39 @@ defmodule SymphonyElixir.Workspace do
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp issue_context(%{id: issue_id, identifier: identifier}) do
+  defp issue_context(%SymphonyElixir.Linear.Issue{} = issue) do
+    %{
+      issue_id: issue.id,
+      issue_identifier: issue.identifier || "issue",
+      issue_branch_name: issue.branch_name,
+      raw_issue: issue
+    }
+  end
+
+  defp issue_context(%{id: issue_id, identifier: identifier} = issue) do
     %{
       issue_id: issue_id,
-      issue_identifier: identifier || "issue"
+      issue_identifier: identifier || "issue",
+      issue_branch_name: Map.get(issue, :branch_name) || Map.get(issue, "branchName"),
+      raw_issue: issue
     }
   end
 
   defp issue_context(identifier) when is_binary(identifier) do
     %{
       issue_id: nil,
-      issue_identifier: identifier
+      issue_identifier: identifier,
+      issue_branch_name: nil,
+      raw_issue: nil
     }
   end
 
   defp issue_context(_identifier) do
     %{
       issue_id: nil,
-      issue_identifier: "issue"
+      issue_identifier: "issue",
+      issue_branch_name: nil,
+      raw_issue: nil
     }
   end
 

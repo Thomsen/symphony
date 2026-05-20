@@ -40,6 +40,63 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "workspace hooks support expansion of issue context" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-hook-expansion-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      File.mkdir_p!(workspace_root)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "echo \"{{ issue.identifier }}\" > issue_id.txt"
+      )
+
+      issue = %SymphonyElixir.Linear.Issue{
+        id: "issue-1",
+        identifier: "EXP-123"
+      }
+
+      assert {:ok, workspace} = Workspace.create_for_issue(issue)
+      assert File.read!(Path.join(workspace, "issue_id.txt")) == "EXP-123\n"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "workspace hooks support expansion of issue branch name" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-hook-branch-expansion-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      File.mkdir_p!(workspace_root)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "echo \"{{ issue.branch_name }}\" > branch.txt"
+      )
+
+      issue = %SymphonyElixir.Linear.Issue{
+        id: "issue-1",
+        identifier: "EXP-123",
+        branch_name: "feature/test-branch"
+      }
+
+      assert {:ok, workspace} = Workspace.create_for_issue(issue)
+      assert File.read!(Path.join(workspace, "branch.txt")) == "feature/test-branch\n"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace path is deterministic per issue identifier" do
     workspace_root =
       Path.join(

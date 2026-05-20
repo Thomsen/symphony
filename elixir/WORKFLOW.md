@@ -19,6 +19,7 @@ workspace:
   root: ~/ai/symphony-openai
 hooks:
   after_create: |
+    git clone --depth 1 {% if issue.branch_name %}--branch {{ issue.branch_name }}{% endif %} https://github.com/openai/symphony .
     if command -v mise >/dev/null 2>&1; then
       cd elixir && mise trust && mise exec -- mix deps.get
     fi
@@ -51,6 +52,7 @@ Issue context:
 Identifier: {{ issue.identifier }}
 Title: {{ issue.title }}
 Current status: {{ issue.state }}
+Branch: {{ issue.branch_name }}
 Labels: {{ issue.labels }}
 URL: {{ issue.url }}
 

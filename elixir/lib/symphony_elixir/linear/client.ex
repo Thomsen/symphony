@@ -234,7 +234,7 @@ defmodule SymphonyElixir.Linear.Client do
         {:ok, []}
 
       ids ->
-        do_fetch_issue_states(ids, nil, graphql_fun)
+        do_fetch_issue_states(ids, nil, nil, graphql_fun)
     end
   end
 
